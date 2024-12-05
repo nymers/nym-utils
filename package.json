@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "@effect/experimental": "^0.33.3",
+    "@effect/platform": "^0.70.3",
+    "@effect/platform-bun": "^0.50.3",
+    "@effect/platform-node": "^0.65.3",
+    "@effect/printer-ansi": "^0.39.3",
+    "@effect/cli": "^0.49.3",
+    "effect": "^3.10.13"
+  },
+  "name": "nym-utils",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@effect/language-service": "^0.2.0",
+    "@effect/vitest": "^0.14.2",
+    "@types/bun": "latest",
+    "vite-tsconfig-paths": "^5.1.2",
+    "vitest": "^2.1.4"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
