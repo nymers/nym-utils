@@ -476,7 +476,10 @@ export class Address extends Schema.Class<Address>("Address")({
           );
           return Address.makePrometheusExport(addr, {
             address: addr.address,
-            ...extraLabels,
+            ...{
+              delegate: extraLabels.delegate.join(","),
+              bond: extraLabels.bond.join(","),
+            },
           });
         })
       )
@@ -493,11 +496,24 @@ export class Address extends Schema.Class<Address>("Address")({
     total_value: PrometheusMetric.gauge("nym_address_total_value").pipe(
       PrometheusMetric.withHelp("Total value of the address")
     ),
+    total_balance: PrometheusMetric.gauge("nym_address_total_balance").pipe(
+      PrometheusMetric.withHelp("Total balanceof the address")
+    ),
     total_delegations: PrometheusMetric.gauge(
       "nym_address_total_delegations"
     ).pipe(PrometheusMetric.withHelp("Total delegations")),
   } as const;
 
+  static totalBalances(addr: Address) {
+    return (
+      addr.balances.reduce((acc, b) => {
+        return acc + Number(b.amount);
+      }, 0) +
+      Number(addr.total_delegations.amount) +
+      Number(addr.claimable_rewards.amount) +
+      Number(addr.operator_rewards?.amount ?? 0)
+    );
+  }
   static makePrometheusExport = (addr: Address, labels: PrometheusLabels) => {
     const {
       claimable_rewards,
@@ -511,6 +527,7 @@ export class Address extends Schema.Class<Address>("Address")({
       operator_rewards: operator_rewards?.amount ?? 0,
       total_value: total_value.amount,
       total_delegations: total_delegations.amount,
+      total_balance: Address.totalBalances(addr),
     };
     return Object.entries(Address.Metrics).reduce((acc, [key, metric]) => {
       const fixedKey = key as unknown as keyof typeof Address.Metrics;
