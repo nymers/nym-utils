@@ -1,4 +1,5 @@
 import { HttpClient } from "@effect/platform";
+import type { ResponseError } from "@effect/platform/HttpClientError";
 import { Effect, Schema } from "effect";
 import {
   PrometheusExport,
@@ -193,16 +194,68 @@ export class Node extends Schema.Class<Node>("NymNode")({
   rewarding_details: RewardingDetails,
   location: Location,
   delegations: Schema.Array(Delegation),
+  performance: Schema.Number,
+  active_set: Schema.Boolean,
 }) {
   static fromExplorer(nodeId: number) {
     const decode = Schema.decodeUnknown(Node);
     return Effect.gen(function* (_) {
       const cli = yield* HttpClient.HttpClient;
-      const resp = yield* cli.get(
-        `https://explorer.nymtech.net/api/v1/tmp/unstable/nym-nodes/${nodeId}`
-      );
-      const data = yield* resp.json;
-      return yield* decode(data);
+      const req1 = cli
+        .get(
+          `https://explorer.nymtech.net/api/v1/tmp/unstable/nym-nodes/${nodeId}`
+        )
+        .pipe(
+          Effect.flatMap(
+            (resp) =>
+              resp.json as Effect.Effect<
+                Record<string, any>,
+                ResponseError,
+                never
+              >
+          )
+        );
+
+      const req2 = cli
+        .get(
+          `https://api.nym.spectredao.net/api/v1/nodes/${nodeId}/performance-history`
+        )
+        .pipe(
+          Effect.flatMap(
+            (resp) =>
+              resp.json as Effect.Effect<
+                { data: { date: string; performance: number }[] },
+                ResponseError,
+                never
+              >
+          )
+        );
+
+      const req3 = cli.get(
+        `https://api.nym.spectredao.net/api/v1/active-set`
+      )
+        .pipe(
+          Effect.flatMap(
+            (resp) =>
+              resp.json as Effect.Effect<
+                { active_set: number[] },
+                ResponseError,
+                never
+              >
+          )
+        );
+      const [resp1, resp2, resp3] = yield* Effect.all([req1, req2, req3], {
+        concurrency: 8,
+        concurrentFinalizers: true,
+      });
+
+      return yield* decode({
+        ...resp1,
+        ...{
+          performance: resp2.data.slice(-1).map((p) => p.performance)[0] || 0.0,
+          active_set: resp3.active_set.includes(nodeId),
+        },
+      });
     }).pipe(Effect.scoped);
   }
 
@@ -269,6 +322,12 @@ export class Node extends Schema.Class<Node>("NymNode")({
     total_unit_reward: PrometheusMetric.gauge(
       "nym_node_total_unit_reward"
     ).pipe(PrometheusMetric.withHelp("Total unit reward")),
+    performance: PrometheusMetric.gauge(
+      "nym_node_mixnode_performance"
+    ).pipe(PrometheusMetric.withHelp("Mixnode performance")),
+    active_set: PrometheusMetric.gauge(
+      "nym_node_mixnode_in_active_set"
+    ).pipe(PrometheusMetric.withHelp("Mixnode in active set")),
   } as const;
 
   static makeNodeExport = (
@@ -288,6 +347,8 @@ export class Node extends Schema.Class<Node>("NymNode")({
       operating_cost:
         rewarding_details.cost_params.interval_operating_cost.amount,
       operator_rewards: rewarding_details.delegates,
+      performance: node.performance.toString(),
+      active_set: node.active_set ? 1 : 0,
     };
     return Object.entries(Node.NodeMetrics).reduce((acc, [key, metric]) => {
       const fixedKey = key as unknown as keyof typeof Node.NodeMetrics;
