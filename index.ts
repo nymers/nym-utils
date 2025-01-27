@@ -1,12 +1,16 @@
 import { Command, Options } from "@effect/cli";
-import { HttpApiBuilder, HttpMiddleware } from "@effect/platform";
+import {
+  FetchHttpClient,
+  HttpApiBuilder,
+  HttpMiddleware,
+} from "@effect/platform";
 import { BunHttpServer } from "@effect/platform-bun";
 import {
   NodeContext,
   NodeHttpClient,
   NodeRuntime,
 } from "@effect/platform-node";
-import { Console, Effect, Layer } from "effect";
+import { Console, Effect, Layer, Stream } from "effect";
 import { layer } from "nym-utils/api";
 import { Address, Node } from "nym-utils/domain";
 import { printObjectFlattened } from "./utils";
@@ -67,8 +71,31 @@ const addrInfo = Command.make("addr", { addresses }).pipe(
   })
 );
 
+const exp = Command.make("export", { addresses, nodes }).pipe(
+  Command.withDescription("Export nodes or addresses to prometheus format"),
+  Command.withHandler(({ addresses, nodes }) => {
+    const ret = Stream.fromIterable(addresses)
+      .pipe(
+        Stream.mapEffect(Address.prometheusExport, { concurrency: "unbounded" })
+      )
+      .pipe(
+        Stream.concat(
+          Stream.fromIterable(nodes).pipe(
+            Stream.mapEffect(Node.prometheusExport, {
+              concurrency: "unbounded",
+            })
+          )
+        ),
+        Stream.mapEffect(Console.log),
+        Stream.runDrain
+      )
+      .pipe(Effect.provide(NodeHttpClient.layer));
+    return ret;
+  })
+);
+
 const command = Command.make("nym-util").pipe(
-  Command.withSubcommands([exporter, addrInfo, nodeInfo])
+  Command.withSubcommands([exporter, addrInfo, nodeInfo, exp])
 );
 
 export const cli = Command.run(command, {
